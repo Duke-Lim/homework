@@ -19,10 +19,7 @@ public class TextChannelManager implements ChannelManager<String> {
 
   @Override
   public void init() {
-    Processor<String> processor = new TextConsumerProcessor(saveDir);
-
-    channel =
-      new PartitionChannel<>("MemoryQueueChannel", processor, partitionSize);
+    channel = new PartitionChannel<>(partitionSize);
     channel.start();
   }
 
