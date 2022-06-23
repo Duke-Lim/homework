@@ -5,114 +5,119 @@ import java.util.List;
 
 public class PartitionChannel<T> implements Channel<T> {
 
-	private String instanceName;
+  private String instanceName;
 
-	private int partitionSize;
+  private int partitionSize;
 
-	private List<List<T>> partition = null;
+  private List<List<T>> partition = null;
 
-	private Processor<T> processor = null;
+  private Processor<T> processor = null;
 
-	private Thread[] workThreads = null;
+  private Thread[] workThreads = null;
 
-	public PartitionChannel(String instanceName, Processor<T> processor, Integer partitionSize) {
-		this.instanceName = instanceName;
-		
-		if(partitionSize != null && partitionSize > 0) {
-			this.partitionSize = partitionSize.intValue();
-		}
+  public PartitionChannel(
+    String instanceName,
+    Processor<T> processor,
+    Integer partitionSize
+  ) {
+    this.instanceName = instanceName;
 
-		this.partition = new ArrayList<>(partitionSize);
-		this.processor = processor;
-		this.workThreads = new Thread[this.partitionSize];
-	}
+    if (partitionSize != null && partitionSize > 0) {
+      this.partitionSize = partitionSize.intValue();
+    }
 
-	@Override
-	public void start() {
-		for(int i = 0; i < this.partitionSize; i++) {
-			this.partition.add(new ArrayList<T>());
+    this.partition = new ArrayList<>(partitionSize);
+    this.processor = processor;
+    this.workThreads = new Thread[this.partitionSize];
+  }
 
-			try {
-                Consumer consumeThread = new Consumer(this, i);
-				workThreads[i] = new Thread(consumeThread, instanceName + "-" + i);
-				
-				workThreads[i].start();
-			} catch (Exception e) {
-				e.printStackTrace();
-			}
-		}
-	}
+  @Override
+  public void start() {
+    for (int i = 0; i < this.partitionSize; i++) {
+      this.partition.add(new ArrayList<T>());
 
-	@Override
-	public void stop() {
-		for(int i = 0; i < this.partitionSize; i++) {
-			try {
-				workThreads[i].interrupt();
-				workThreads[i] = null;
-			} catch (Exception e) {
-				e.printStackTrace();
-			}
-		}
-	}
+      try {
+        Consumer consumeThread = new Consumer(this, i);
+        workThreads[i] = new Thread(consumeThread, instanceName + "-" + i);
 
-	@Override
-	public void destroy() {
-		stop();
-	}
+        workThreads[i].start();
+      } catch (Exception e) {
+        e.printStackTrace();
+      }
+    }
+  }
 
-	class Consumer implements Runnable {
+  @Override
+  public void stop() {
+    for (int i = 0; i < this.partitionSize; i++) {
+      try {
+        workThreads[i].interrupt();
+        workThreads[i] = null;
+      } catch (Exception e) {
+        e.printStackTrace();
+      }
+    }
+  }
 
-		private PartitionChannel<T> partitionChannel;
-		private int partitionIndex;
+  @Override
+  public void destroy() {
+    stop();
+  }
 
-		Consumer(PartitionChannel<T> partitionChannel, int partitionIndex) {
-			this.partitionChannel = partitionChannel;
-			this.partitionIndex = partitionIndex;
-		}
+  class Consumer implements Runnable {
 
-		@Override
-		public void run() {
-			while(!Thread.currentThread().isInterrupted()) {
-				try {
-					List<T> datas = partitionChannel.get(partitionIndex);
+    private PartitionChannel<T> partitionChannel;
+    private int partitionIndex;
 
-					for (T data : datas) {
-						processor.process(data);
-					}
-				} catch(InterruptedException e) {
-					Thread.currentThread().interrupt();
-				} catch(Exception e) {
-					e.printStackTrace();
-				}
-			}
-		}
-	}
+    Consumer(PartitionChannel<T> partitionChannel, int partitionIndex) {
+      this.partitionChannel = partitionChannel;
+      this.partitionIndex = partitionIndex;
+    }
 
-	public synchronized List<T> get(int partitionIndex) throws InterruptedException {
-		List<T> partitonData = partition.get(partitionIndex);
+    @Override
+    public void run() {
+      while (!Thread.currentThread().isInterrupted()) {
+        try {
+          List<T> datas = partitionChannel.get(partitionIndex);
 
-		while (partitonData.size() <= 0) {
-            wait();
+          for (T data : datas) {
+            processor.process(data);
+          }
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+        } catch (Exception e) {
+          e.printStackTrace();
         }
+      }
+    }
+  }
 
-		notifyAll();
+  public synchronized List<T> get(int partitionIndex)
+    throws InterruptedException {
+    List<T> partitonData = partition.get(partitionIndex);
+    System.out.println(partitonData);
 
-		partition.set(partitionIndex, new ArrayList<>());
+    while (partitonData.isEmpty()) {
+      wait();
+    }
 
-		return partitonData;
-	}
+    notifyAll();
 
-	public synchronized void put(int partitionIndex, List<T> data) throws InterruptedException {
-		List<T> partitonData = partition.get(partitionIndex);
+    partition.set(partitionIndex, new ArrayList<>());
 
-		System.out.println(partitonData.size() <= 0);
+    return partitonData;
+  }
 
-		while (!(partitonData.size() <= 0)) {
-            wait();
-        }
+  public synchronized void put(int partitionIndex, List<T> data)
+    throws InterruptedException {
+    List<T> partitonData = partition.get(partitionIndex);
 
-		notifyAll();
+    while (!partitonData.isEmpty()) {
+      wait();
+    }
 
-		partition.set(partitionIndex, data);
-	}
+    notifyAll();
+
+    partition.set(partitionIndex, data);
+  }
 }
